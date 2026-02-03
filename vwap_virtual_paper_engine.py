@@ -301,28 +301,38 @@ class VWAPVirtualEngine:
 
     def process_signals(self, ce, pe):
 
-        if self.prev_ce is not None and not self.ce_pos and not self.locked:
-            if self.prev_ce["close"] <= self.prev_ce["vwap"] and ce["close"] > ce["vwap"]:
-                self.ce_pos = {"price": ce["open"]}
-                log(f"{ce['datetime']} ENTRY CE @ {ce['open']}")
+        # ================= CE =================
+        if not self.ce_pos and not self.locked:
+            if ce["close"] > ce["vwap"]:
+                self.ce_pos = {
+                    "price": ce["close"],
+                    "time": ce["datetime"]
+                }
+                log(f"{ce['datetime']} BUY CE @ {ce['close']} | VWAP {round(ce['vwap'],2)}")
 
-        if self.ce_pos and self.prev_ce["close"] >= self.prev_ce["vwap"] and ce["close"] < ce["vwap"]:
-            pnl = calculate_pnl("CE", self.ce_pos["price"], ce["open"])
-            self.day_mtm += pnl
-            log(f"{ce['datetime']} EXIT CE @ {ce['open']} PNL {pnl}")
-            self.ce_pos = None
+        elif self.ce_pos:
+            if ce["close"] < ce["vwap"]:
+                pnl = calculate_pnl("CE", self.ce_pos["price"], ce["close"])
+                self.day_mtm += pnl
+                log(f"{ce['datetime']} EXIT CE @ {ce['close']} | PNL {round(pnl,2)}")
+                self.ce_pos = None
 
-        if self.prev_pe is not None and not self.pe_pos and not self.locked:
-            if self.prev_pe["close"] <= self.prev_pe["vwap"] and pe["close"] > pe["vwap"]:
-                self.pe_pos = {"price": pe["open"]}
-                log(f"{pe['datetime']} ENTRY PE @ {pe['open']}")
 
-        if self.pe_pos and self.prev_pe["close"] >= self.prev_pe["vwap"] and pe["close"] < pe["vwap"]:
-            pnl = calculate_pnl("PE", self.pe_pos["price"], pe["open"])
-            self.day_mtm += pnl
-            log(f"{pe['datetime']} EXIT PE @ {pe['open']} PNL {pnl}")
-            self.pe_pos = None
+        # ================= PE =================
+        if not self.pe_pos and not self.locked:
+            if pe["close"] > pe["vwap"]:
+                self.pe_pos = {
+                    "price": pe["close"],
+                    "time": pe["datetime"]
+                }
+                log(f"{pe['datetime']} BUY PE @ {pe['close']} | VWAP {round(pe['vwap'],2)}")
 
+        elif self.pe_pos:
+            if pe["close"] < pe["vwap"]:
+                pnl = calculate_pnl("PE", self.pe_pos["price"], pe["close"])
+                self.day_mtm += pnl
+                log(f"{pe['datetime']} EXIT PE @ {pe['close']} | PNL {round(pnl,2)}")
+                self.pe_pos = None
 
     def run(self):
         trade_date = datetime.now(IST).strftime("%Y-%m-%d")
