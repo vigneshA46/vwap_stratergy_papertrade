@@ -9,7 +9,7 @@ import os
 
 load_dotenv()
 
-ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
+
 
 INSTRUMENT_URL = "https://api.dhan.co/v2/instrument/NSE_FNO"
 HIST_URL = "https://api.dhan.co/v2/charts/intraday"
@@ -19,6 +19,8 @@ HEADERS = {
     "access-token": ACCESS_TOKEN
 }
 
+
+ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 
 def fetch_fut_candle():
     payload = {

@@ -6,6 +6,8 @@ import pytz
 from io import StringIO
 import os
 from dotenv import load_dotenv
+from dhanhq import marketfeed
+
 
 # =========================
 # CONFIG
@@ -13,9 +15,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+CLIENT_ID=os.getenv("CLIENT_ID")
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 
-TRADE_DATE="2026-01-22"
+IST = pytz.timezone("Asia/Kolkata")
+TRADE_DATE=datetime.now(IST).strftime("%Y-%m-%d")
+
 
 INSTRUMENT_URL = "https://api.dhan.co/v2/instrument/NSE_FNO"
 HIST_URL = "https://api.dhan.co/v2/charts/intraday"
@@ -48,11 +53,13 @@ def log(msg):
     print(msg)
 
 
+
+
 def calculate_pnl(pos, entry, exit):
     if pos == "CE":
         return (exit - entry) * LOT_SIZE * LOTS
     else:
-        return (entry - exit) * LOT_SIZE * LOTS
+        return (exit - entry) * LOT_SIZE * LOTS
 
 
 # =========================
@@ -159,15 +166,25 @@ def fetch_one_candle(security_id, exchange, instrument, from_dt, to_dt,vwap_stat
 
     return row
 
-def fetch_fut_candle(security_id,from_dt, to_dt):
+def wait_for_start():
+    print("⏳ Waiting for 09:16:00 ...")
+    while True:
+        now = datetime.now(IST).time()
+        if now >= time(9, 16):
+            print("✅ Market Start Triggered")
+            break
+        time.sleep(1)
+
+
+def fetch_fut_candle(security_id):
     payload = {
-        "securityId": f"{security_id}",
+        "securityId": str(security_id),
         "exchangeSegment": "NSE_FNO",
         "instrument": "FUTIDX",
         "interval": "1",
         "oi": True,
-        "fromDate": str(from_dt),
-        "toDate": str(to_dt)
+        "fromDate": f"2026-02-02 09:14:00",
+        "toDate": f"2026-02-02 09:16:00"
     }
 
     r = requests.post(HIST_URL, headers=HEADERS, json=payload)
@@ -187,8 +204,66 @@ def fetch_fut_candle(security_id,from_dt, to_dt):
 
     dt_index = pd.to_datetime(df["timestamp"], unit="s", utc=True)
     df["datetime"] = dt_index.dt.tz_convert("Asia/Kolkata")
+
     row = df.iloc[-1].copy()
     return row
+
+
+    return {
+        "security_id": tick["security_id"],
+        "price": float(tick["LTP"]),
+        "avg": float(tick["avg_price"]),
+        "time": tick["LTT"],
+        "volume": tick["volume"]
+    }
+
+def normalize_tick(tick):
+    if tick.get("type") != "Quote Data":
+        return None
+
+    return {
+        "security_id": tick["security_id"],
+        "price": float(tick["LTP"]),
+        "avg": float(tick["avg_price"]),
+        "time": tick["LTT"],
+        "volume": tick["volume"]
+    }
+
+
+# =========================
+# CANDLE BUILDER
+# =========================
+
+class CandleBuilder:
+    def __init__(self):
+        self.current_minute = None
+        self.ohlc = None
+
+    def update(self, price, tick_time):
+        now = datetime.now(IST)
+        t = datetime.strptime(tick_time, "%H:%M:%S").replace(
+        year=now.year, month=now.month, day=now.day
+        )
+        minute = t.replace(second=0)
+
+        closed = None
+
+        if self.current_minute != minute:
+            closed = self.ohlc
+            self.current_minute = minute
+            self.ohlc = {
+                "open": price,
+                "high": price,
+                "low": price,
+                "close": price,
+                "volume": price
+            }
+        else:
+            self.ohlc["high"] = max(self.ohlc["high"], price)
+            self.ohlc["low"] = min(self.ohlc["low"], price)
+            self.ohlc["close"] = price
+
+        return closed
 
 
 # =========================
@@ -221,6 +296,8 @@ class VWAPVirtualEngine:
             self.locked = True
             log("🔒 MTM LOCKED")
 
+            
+
 
     def process_signals(self, ce, pe):
 
@@ -248,19 +325,24 @@ class VWAPVirtualEngine:
 
 
     def run(self):
+        trade_date = datetime.now(IST).strftime("%Y-%m-%d")
+
+        wait_for_start()
+
 
         log("🚀 ENGINE STARTED (VIRTUAL MODE)")
 
         fno_df = load_fno_master()
         fut = get_nearest_nifty_fut(fno_df, self.trade_date)
+
         print(fut["SECURITY_ID"])
         # --- FUT REF
-        from_dt =  pd.to_datetime(f"{TRADE_DATE} 09:14:00")
-        to_dt   =  pd.to_datetime(f"{TRADE_DATE} 09:16:00")
+        from_dt =  "2026-02-02 09:14:00"
+        to_dt   =  "2026-02-02 09:16:00"
         print(from_dt)
         print(to_dt)
 
-        fut_candle = fetch_fut_candle(fut["SECURITY_ID"],from_dt,to_dt)
+        fut_candle = fetch_fut_candle(fut["SECURITY_ID"])
         print("future candle")
         print(fut_candle)
         ref_price = fut_candle["close"]
@@ -277,30 +359,82 @@ class VWAPVirtualEngine:
         print(self.ce_id , self.pe_id)
         
 
-        virtual_dt = pd.to_datetime(f"{TRADE_DATE} {START_TIME}")
-        print(virtual_dt)
-        while virtual_dt.time() <= FORCE_EXIT_TIME:
+        feed = marketfeed.DhanFeed(
+        CLIENT_ID,
+        ACCESS_TOKEN,
+        [
+            (marketfeed.NSE_FNO, str(self.ce_id), marketfeed.Quote),
+            (marketfeed.NSE_FNO, str(self.pe_id), marketfeed.Quote),
+            
+        ],
+        version="v2"
+    )
 
-            from_dt = virtual_dt.strftime("%Y-%m-%d %H:%M:%S")
-            to_dt = (virtual_dt + timedelta(minutes=2)).strftime("%Y-%m-%d %H:%M:%S")
-            from_dt = pd.to_datetime(from_dt).strftime("%Y-%m-%d %H:%M:%S")
-            to_dt   = pd.to_datetime(to_dt).strftime("%Y-%m-%d %H:%M:%S")
+        print("✅ Live Feed Started")
 
-            ce_candle = fetch_one_candle(self.ce_id, "NSE_FNO", "OPTIDX", from_dt, to_dt,self.ce_vwap_state)
-            pe_candle = fetch_one_candle(self.pe_id, "NSE_FNO", "OPTIDX", from_dt, to_dt,self.pe_vwap_state)
+        # ---------------- INIT ONCE ----------------
+        builders = {
+            str(self.ce_id): CandleBuilder(),
+            str(self.pe_id): CandleBuilder()
+            }
+        states = {
+            str(self.ce_id): {"vwap": {"cum_pv":0,"cum_vol":0}},
+            str(self.pe_id): {"vwap": {"cum_pv":0,"cum_vol":0}}
+            }
 
-            if ce_candle is None or pe_candle is None:
-                virtual_dt += timedelta(minutes=1)
+        buffer = {}
+
+        for sec in [self.ce_id,self.pe_id]:
+            sec = str(sec)
+            builders[sec] = CandleBuilder()
+
+        # ---------------- START FEED ----------------
+        feed.run_forever()
+
+        # ---------------- MAIN LOOP ----------------
+        while True:
+            tick = feed.get_data()
+
+            nt = normalize_tick(tick)
+            if not nt:
                 continue
 
-            self.execute_orders(ce_candle, pe_candle)
-            self.risk_check()
-            self.process_signals(ce_candle, pe_candle)
+            sec = str(nt["security_id"])
+            price = nt["price"]
+            avg = nt["avg"]
+            ttime = nt["time"]
+            volume = nt["volume"]
 
-            self.prev_ce = ce_candle
-            self.prev_pe = pe_candle
+            candle = builders[sec].update(price, ttime)
+            if candle:
+                print(candle)
+                candle["datetime"] = builders[sec].current_minute
 
-            virtual_dt += timedelta(minutes=1)
+                # VWAP
+                state = states[sec]["vwap"]
+                pv = candle["close"] * candle.get("volume", 1)
+                state["cum_pv"] += pv
+                state["cum_vol"] += candle.get("volume", 1)
+                candle["vwap"] = state["cum_pv"] / state["cum_vol"]
+
+                buffer[sec] = candle
+
+                if len(buffer) == 2:
+                    ce = buffer[str(self.ce_id)]
+                    pe = buffer[str(self.pe_id)]
+
+                    engine.execute_orders(ce, pe)
+                    engine.risk_check()
+                    engine.process_signals(ce, pe)
+
+                    engine.prev_ce = ce
+                    engine.prev_pe = pe
+
+                    buffer.clear()
+
+            if datetime.now(IST).time() >= FORCE_EXIT_TIME:
+                engine.square_off_all()
+                break
 
         log(f"✅ DAY MTM : {self.day_mtm}")
 
@@ -310,5 +444,5 @@ class VWAPVirtualEngine:
 # =========================
 
 if __name__ == "__main__":
-    engine = VWAPVirtualEngine("2026-01-27")
+    engine = VWAPVirtualEngine(TRADE_DATE)
     engine.run()
