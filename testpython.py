@@ -14,13 +14,9 @@ load_dotenv()
 INSTRUMENT_URL = "https://api.dhan.co/v2/instrument/NSE_FNO"
 HIST_URL = "https://api.dhan.co/v2/charts/intraday"
 
-HEADERS = {
-    "Content-Type": "application/json",
-    "access-token": ACCESS_TOKEN
-}
 
 
-ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
+
 
 def fetch_fut_candle():
     payload = {
