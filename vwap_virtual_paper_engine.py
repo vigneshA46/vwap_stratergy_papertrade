@@ -1,12 +1,13 @@
 import time as t
 import requests
 import pandas as pd
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta , time as dtime
 import pytz
 from io import StringIO
 import os
 from dotenv import load_dotenv
 from dhanhq import marketfeed
+import time
 
 
 # =========================
@@ -35,8 +36,8 @@ IST = pytz.timezone("Asia/Kolkata")
 TARGET_SYMBOL = "NIFTY"
 INTERVAL = "1"
 
-START_TIME = time(9, 16)
-FORCE_EXIT_TIME = time(15, 20)
+START_TIME = dtime(9, 16)
+FORCE_EXIT_TIME = dtime(15, 20)
 
 LOT_SIZE = 65
 LOTS = 1
@@ -66,25 +67,25 @@ def calculate_pnl(pos, entry, exit):
 # DHAN HELPERS
 # =========================
 
-def load_fno_master():
-    r = requests.get(INSTRUMENT_URL, headers={"access-token": ACCESS_TOKEN})
+def load_fno_master() -> pd.DataFrame:
+    print("...downloading FNO master")
+
+    r = requests.get(FNO_MASTER_URL, headers={"access-token": ACCESS_TOKEN})
     r.raise_for_status()
 
-    df = pd.read_csv(StringIO(r.text), header=None, low_memory=False)
+    # ✅ Use header from API (IMPORTANT)
+    df = pd.read_csv(StringIO(r.text), low_memory=False)
 
-    df.columns = [
-        "EXCH_ID","SEGMENT","SECURITY_ID","ISIN","INSTRUMENT",
-        "UNDERLYING_SECURITY_ID","UNDERLYING_SYMBOL","SYMBOL_NAME",
-        "DISPLAY_NAME","INSTRUMENT_TYPE","SERIES","LOT_SIZE",
-        "SM_EXPIRY_DATE","STRIKE_PRICE","OPTION_TYPE","TICK_SIZE",
-        "EXPIRY_FLAG","BRACKET_FLAG","COVER_FLAG","ASM_GSM_FLAG",
-        "ASM_GSM_CATEGORY","BUY_SELL_INDICATOR",
-        "BUY_CO_MIN_MARGIN_PER","BUY_CO_SL_RANGE_MAX_PERC",
-        "BUY_CO_SL_RANGE_MIN_PERC","BUY_BO_MIN_MARGIN_PER",
-        "BUY_BO_PROFIT_RANGE_MAX_PERC","BUY_BO_PROFIT_RANGE_MIN_PERC",
-        "MTF_LEVERAGE","RESERVED"
-    ]
+    # ✅ Drop unwanted column
+    if "Unnamed: 31" in df.columns:
+        df = df.drop(columns=["Unnamed: 31"])
+
+    # ✅ Type conversions
+    df["STRIKE_PRICE"] = pd.to_numeric(df["STRIKE_PRICE"], errors="coerce")
+    df["SM_EXPIRY_DATE"] = pd.to_datetime(df["SM_EXPIRY_DATE"], errors="coerce")
+
     return df
+
 
 
 def get_nearest_nifty_fut(df, trade_date):
@@ -170,7 +171,7 @@ def wait_for_start():
     print("⏳ Waiting for 09:16:00 ...")
     while True:
         now = datetime.now(IST).time()
-        if now >= time(9, 16):
+        if now >= dtime(9, 16):
             print("✅ Market Start Triggered")
             break
         time.sleep(1)
@@ -347,16 +348,17 @@ class VWAPVirtualEngine:
 
         print(fut["SECURITY_ID"])
         # --- FUT REF
-        from_dt =  "2026-02-02 09:14:00"
-        to_dt   =  "2026-02-02 09:16:00"
+        from_dt =  f"{trade_date} 09:14:00"
+        to_dt   =  f"{trade_date} 09:16:00"
         print(from_dt)
         print(to_dt)
 
         fut_candle = fetch_fut_candle(fut["SECURITY_ID"])
         print("future candle")
+
         print(fut_candle)
         ref_price = fut_candle["close"]
-        print(ref_price)
+        print("future close",ref_price)
 
         atm, ce_strike, pe_strike = calculate_strikes(ref_price)
         print("CE price , PE pRice",ce_strike,pe_strike)
@@ -426,6 +428,7 @@ class VWAPVirtualEngine:
                 state["cum_pv"] += pv
                 state["cum_vol"] += candle.get("volume", 1)
                 candle["vwap"] = state["cum_pv"] / state["cum_vol"]
+                print(candle["vwap"],"vwap")
 
                 buffer[sec] = candle
 
