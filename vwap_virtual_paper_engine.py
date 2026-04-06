@@ -70,7 +70,7 @@ def calculate_pnl(pos, entry, exit):
 def load_fno_master() -> pd.DataFrame:
     print("...downloading FNO master")
 
-    r = requests.get(FNO_MASTER_URL, headers={"access-token": ACCESS_TOKEN})
+    r = requests.get(INSTRUMENT_URL, headers={"access-token": ACCESS_TOKEN})
     r.raise_for_status()
 
     # ✅ Use header from API (IMPORTANT)
