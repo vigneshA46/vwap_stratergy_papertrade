@@ -258,12 +258,6 @@ def update_pnl_tickwise(state, ltp):
 # =========================
 # STEP 4: ATM & ITM LOGIC
 # =========================
-
-def calculate_strikes(fut_price, step=50):
-    atm = round(fut_price / step) * step
-    return atm
-
-
 def wait_for_start():
     print("⏳ Waiting for market...")
     while True:
@@ -271,6 +265,10 @@ def wait_for_start():
             print("✅ Market Started")
             return
         time.sleep(1)
+
+def calculate_strikes(fut_price, step=50):
+    atm = round(fut_price / step) * step
+    return atm
 
 # =========================
 # STEP 3: HISTORICAL FETCH
@@ -562,7 +560,7 @@ def on_message(msg):
 
             exit_price = ltp
 
-            pnl = (exit_price - pe_state["entry_price"]) * LOTSIZE * pe_state["lot"]
+            pnl = (exit_price - ce_state["entry_price"]) * LOTSIZE * ce_state["lot"]
 
             pe_state["pnl"] += pnl
             combined_pnl += pnl
@@ -683,6 +681,7 @@ def on_message(msg):
 
 
 wait_for_start()
+threading.Thread(target=trade_log_worker, daemon=True).start()
 
 fut=get_nearest_nifty_fut(fno_df , today)
 
