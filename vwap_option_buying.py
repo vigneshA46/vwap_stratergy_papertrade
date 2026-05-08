@@ -530,6 +530,7 @@ def handle_leg(name, token, candle, state, ltp, vwap):
 
 
 def on_message(msg):
+    global combined_pnl
 
     if msg.get("type") != "Quote Data":
         return
@@ -562,7 +563,7 @@ def on_message(msg):
 
             pnl = (exit_price - ce_state["entry_price"]) * LOTSIZE * ce_state["lot"]
 
-            pe_state["pnl"] += pnl
+            ce_state["pnl"] += pnl
             combined_pnl += pnl
 
             print(f"🔴 CE VWAP TICK EXIT | {ltp} < {vwap} | PNL: {pnl:.2f}")
