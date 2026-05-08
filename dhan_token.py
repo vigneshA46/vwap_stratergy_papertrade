@@ -2,7 +2,7 @@ import os
 import time
 import requests
 import pyotp
-from datetime import datetime
+from datetime import datetime,timedelta
 from dotenv import load_dotenv
 from postgres import get_db_connection
 
@@ -58,9 +58,14 @@ def get_access_token():
     # 1️⃣ Check DB
     token, expiry = get_token_from_db()
 
-    if token and expiry > datetime.utcnow():
-        print("✅ Using cached Dhan token from DB")
-        return token
+    if token and expiry:
+        time_left = expiry - datetime.utcnow()
+
+        if time_left > timedelta(hours=10):
+            print("using cached Dhan token valid 10 hrs")
+            return token
+        else:
+            print("token expiring soon, regenerating.")
 
     # 2️⃣ Generate new token
     totp = pyotp.TOTP(TOTP_SECRET).now()
@@ -87,5 +92,8 @@ def get_access_token():
     print("🔐 New Dhan token generated & saved to DB")
 
     return token
+
+
+
 
  
